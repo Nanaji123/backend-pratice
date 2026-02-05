@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv"
 dotenv.config()//export a function to connects to db
-const databash = () => {
+const database = () => {
     mongoose.connect(process.env.URL)
         .then(() => {
             console.log('Connectd to MongoDB')
@@ -10,4 +10,4 @@ const databash = () => {
             console.log('Failed to connect')
         })
 }
-export default databash
+export default database

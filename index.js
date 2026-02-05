@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import db from "./utils/databash.js"
+import db from "./utils/database.js"
 import authRouter from "./routes/auth.route.js";
 import cookieParser from "cookie-parser";
 
@@ -15,6 +15,7 @@ app.use(
         allowHeaders: ['Content-Type', 'Authorization']
     })
 );
+app.set("trust proxy", true)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

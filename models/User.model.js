@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
+import { hash } from "../utils/hash.js";
 dotenv.config();
 
 const userSchema = new mongoose.Schema({
@@ -27,28 +28,17 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    refreshToken: {
-        type: String,
-    },
-    verificationToken: {
-        type: String,
-    },
-    verificationTokenExpiry: {
-        type: Date,
-    },
-    resetPasswordToken: {
-        type: String,
-    },
-    resetPasswordTokenExpiry: {
-        type: Date,
-    },
+    is2FAEnabled: {
+        type: Boolean,
+        default: false
+    }
 }, {
     timestamps: true
 })
 
 userSchema.pre("save", async function () {
     if (this.isModified("password")) {
-        this.password = await bcrypt.hash(this.password, 10);
+        this.password = await hash(this.password);
     }
 });
 
