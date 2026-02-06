@@ -7,12 +7,24 @@ import { hash, compare } from "../utils/hash.js";
 import { getClientIp } from "../utils/ip.js";
 import Session from "../models/session.model.js";
 import Token from "../models/token.model.js";
+import { validateUsername, validatePassword } from "../utils/validation.js";
+import Password from "../models/password.model.js";
+import cloudinary from "../config/cloudinary.js";
+
+
 
 export const registerController = async (req, res) => {
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
         return res.status(400).json({ message: "All fields are required" })
     }
+    if (!validateUsername(username)) {
+        return res.status(400).json({ message: "Invalid username" })
+    }
+    if (!validatePassword(password)) {
+        return res.status(400).json({ message: "Invalid password" })
+    }
+
     try {
         const user = await User.findOne({ email });
         if (user) {
@@ -24,6 +36,10 @@ export const registerController = async (req, res) => {
             password
         })
         newUser.save();
+        new Password({
+            userId: newUser._id,
+            password: await hash(password)
+        }).save();
 
         const token = crypto.randomBytes(32).toString("hex");
         await Token.create({
@@ -59,10 +75,33 @@ export const loginController = async (req, res) => {
     if (!user.isVerified) {
         return res.status(400).json({ message: "User is not verified" })
     }
+
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+        const remainingMinutes = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
+        return res.status(403).json({
+            success: false,
+            message: `Account is temporarily locked. Try again in ${remainingMinutes} minutes.`
+        });
+    }
+
     const isPasswordValid = await compare(password, user.password);
     if (!isPasswordValid) {
+
+        // Increment login attempts
+        user.loginAttempts += 1;
+        if (user.loginAttempts >= 5) {
+            user.lockUntil = Date.now() + 15 * 60 * 1000; // Lock for 15 mins
+        }
+        await user.save();
+
         return res.status(400).json({ message: "Invalid password" })
     }
+
+    // Reset attempts on successful login
+    user.loginAttempts = 0;
+    user.lockUntil = undefined;
+    await user.save();
+
 
     const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1h" });
     const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
@@ -236,7 +275,7 @@ export const refreshController = async (req, res) => {
 }
 
 export const toggle2FAController = async (req, res) => {
-    const { userId } = req.user;
+    const { _id: userId } = req.user;
     try {
         const user = await User.findById(userId);
         if (!user) {
@@ -259,23 +298,23 @@ export const verify2FAController = async (req, res) => {
             return res.status(404).json({ message: "User not found" });
         }
 
-        // // Check if account is locked
-        // if (user.lockUntil && user.lockUntil > Date.now()) {
-        //     const remainingMinutes = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
-        //     return res.status(403).json({
-        //         success: false,
-        //         message: `Account is temporarily locked. Try again in ${remainingMinutes} minutes.`
-        //     });
-        // }
+        // Check if account is locked
+        if (user.lockUntil && user.lockUntil > Date.now()) {
+            const remainingMinutes = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
+            return res.status(403).json({
+                success: false,
+                message: `Account is temporarily locked. Try again in ${remainingMinutes} minutes.`
+            });
+        }
 
         const isPasswordMatch = await compare(password, user.password);
         if (!isPasswordMatch) {
             // Increment login attempts
-            // user.loginAttempts += 1;
-            // if (user.loginAttempts >= 5) {
-            //     user.lockUntil = Date.now() + 15 * 60 * 1000; // Lock for 15 mins
-            // }
-            // await user.save();
+            user.loginAttempts += 1;
+            if (user.loginAttempts >= 5) {
+                user.lockUntil = Date.now() + 15 * 60 * 1000; // Lock for 15 mins
+            }
+            await user.save();
 
             return res.status(400).json({
                 success: false,
@@ -284,9 +323,9 @@ export const verify2FAController = async (req, res) => {
         }
 
         // Reset attempts on successful login
-        // user.loginAttempts = 0;
-        // user.lockUntil = undefined;
-        // await user.save();
+        user.loginAttempts = 0;
+        user.lockUntil = undefined;
+        await user.save();
 
         if (!user.isVerified) {
             return res.status(400).json({ message: "Invalid or expired 2FA code." });
@@ -346,3 +385,231 @@ export const verify2FAController = async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 }
+
+export const forgetPasswordController = async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const resetTokenRaw = crypto.randomBytes(32).toString("hex");
+        await Token.deleteMany({ userId: user._id, type: 'PASSWORD_RESET' });
+
+        await Token.create({
+            userId: user._id,
+            token: await hash(resetTokenRaw),
+            type: 'PASSWORD_RESET',
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 mins
+        });
+
+        await sendEmail({
+            to: user.email,
+            subject: "Reset your password",
+            text: `Use this link to reset your password: http://localhost:3000/api/v1/auth/reset-password/${user._id}/${resetTokenRaw}. Link expires in 15 minutes.`
+        });
+
+        res.status(200).json({ success: true, message: "Password reset email sent" });
+    } catch (error) {
+        console.error("Error in password reset", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const resetPasswordController = async (req, res) => {
+    const { userId, token } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword) {
+        return res.status(400).json({ message: "Password is required" })
+    }
+
+    if (!validatePassword(newPassword)) {
+        return res.status(400).json({ message: "Invalid password" })
+    }
+
+    try {
+        const tokenDoc = await Token.findOne({
+            userId,
+            type: 'PASSWORD_RESET',
+            expiresAt: { $gt: Date.now() }
+        });
+
+        if (!tokenDoc) {
+            return res.status(400).json({ message: "Invalid or expired reset token" });
+        }
+
+        const isMatch = await tokenDoc.compareToken(token);
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid reset token" });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const passwordHistory = await Password.find({ userId: userId });
+        for (const password of passwordHistory) {
+            const isSame = await password.comparePassword(newPassword);
+            if (isSame) {
+                return res.status(400).json({ message: "Password already used" });
+            }
+        }
+
+        user.password = newPassword;
+        await user.save();
+        new Password({
+            userId: user._id,
+            password: newPassword
+        }).save();
+
+        // Delete the token and revoke sessions
+        await tokenDoc.deleteOne();
+        await Session.deleteMany({ userId: user._id });
+
+        res.status(200).json({ success: true, message: "Password reset successful. All active sessions logged out." });
+    } catch (error) {
+        console.error("Error in reset password", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const changePasswordController = async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    try {
+        const user = await User.findById(req.user._id);
+
+        const isMatch = await user.comparePassword(currentPassword);
+        if (!isMatch) {
+            return res.status(400).json({ message: "Current password is incorrect" });
+        }
+
+        if (!validatePassword(newPassword)) {
+            return res.status(400).json({ message: "New password does not meet complexity requirements" });
+        }
+
+        const passwordHistory = await Password.find({ userId: user._id });
+        for (const password of passwordHistory) {
+            const isSame = await password.comparePassword(newPassword);
+            if (isSame) {
+                return res.status(400).json({ message: "Password already used" });
+            }
+        }
+
+        user.password = newPassword;
+        await user.save();
+        new Password({
+            userId: user._id,
+            password: newPassword
+        }).save();
+
+        // Security requirement: Revoke all other sessions after password change
+        const currentRefreshToken = req.cookies.refreshToken;
+        const sessions = await Session.find({ userId: user._id });
+
+        for (const session of sessions) {
+            const isCurrent = await session.compareToken(currentRefreshToken);
+            if (!isCurrent) {
+                await session.deleteOne();
+            }
+        }
+
+        res.status(200).json({ success: true, message: "Password updated successfully. Other devices logged out." });
+    } catch (error) {
+        console.error("Error in changing password", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+
+
+export const meController = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture } });
+    } catch (error) {
+        console.error("Error in getting user", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const changeUsernameController = async (req, res) => {
+    const { newUsername } = req.body;
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        if (user.usernamechangeCount <= 0) {
+            return res.status(400).json({ message: "Username change limit reached" });
+        }
+
+        if (!validateUsername(newUsername)) {
+            return res.status(400).json({ message: "Invalid username" });
+        }
+
+        if (user.lastUsernameChangeAt) {
+            const lastChanged = new Date(user.lastUsernameChangeAt);
+            const now = new Date();
+            const diffInDays = (now - lastChanged) / (1000 * 60 * 60 * 24);
+            if (diffInDays < 7) {
+                return res.status(400).json({ message: "Username can only be changed once every 7 days" });
+            }
+        }
+
+        const existingUser = await User.findOne({ username: newUsername });
+        if (existingUser) {
+            return res.status(400).json({ message: "Username is already taken." });
+        }
+
+        user.username = newUsername;
+        user.usernamechangeCount -= 1;
+        user.lastUsernameChangeAt = Date.now();
+        await user.save();
+
+        res.status(200).json({ success: true, message: "Username changed successfully" });
+    } catch (error) {
+        console.error("Error in changing username", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const updateProfilePictureController = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: "Please upload an image." });
+        }
+
+        const user = await User.findById(req.user._id);
+
+        // If user already has a custom profile picture (not the default one), delete it from Cloudinary
+        if (user.profile_picture && !user.profile_picture.includes("dicebear.com")) {
+            try {
+                // Extract public ID from the URL (Cloudinary URLs have the public ID before the extension)
+                const publicId = user.profile_picture.split('/').pop().split('.')[0];
+                await cloudinary.uploader.destroy(`profile_pictures/${publicId}`);
+            } catch (err) {
+                console.error("Error deleting old profile picture from Cloudinary", err);
+                // We proceed even if deletion fails to ensure the new one is set
+            }
+        }
+
+        user.profile_picture = req.file.path; // Cloudinary URL from multer-storage-cloudinary
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: "Profile picture updated successfully.",
+            profile_picture: user.profile_picture
+        });
+    } catch (error) {
+        console.error("Error in updating profile picture", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
-import { hash } from "../utils/hash.js";
+import { hash, compare } from "../utils/hash.js";
 dotenv.config();
 
 const userSchema = new mongoose.Schema({
@@ -15,6 +15,13 @@ const userSchema = new mongoose.Schema({
         required: true,
         unique: true
     },
+    usernamechangeCount: {
+        type: Number,
+        default: 5
+    },
+    lastUsernameChangeAt: {
+        type: Date
+    },
     password: {
         type: String,
         minlength: 6,
@@ -22,8 +29,18 @@ const userSchema = new mongoose.Schema({
     },
     profile_picture: {
         type: String,
-
+        default: `https://api.dicebear.com/7.x/avataaars/svg?seed=default`
     },
+
+
+    loginAttempts: {
+        type: Number,
+        default: 0
+    },
+    lockUntil: {
+        type: Date
+    },
+
     isVerified: {
         type: Boolean,
         default: false
@@ -41,6 +58,10 @@ userSchema.pre("save", async function () {
         this.password = await hash(this.password);
     }
 });
+
+userSchema.methods.comparePassword = async function (candidatePassword) {
+    return await compare(candidatePassword, this.password);
+};
 
 const User = mongoose.model("User", userSchema)
 export default User
