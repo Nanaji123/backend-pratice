@@ -3,18 +3,40 @@ import cors from "cors";
 import db from "./utils/database.js"
 import authRouter from "./routes/auth.route.js";
 import cookieParser from "cookie-parser";
+import http from "http";
+
+import { Server } from "socket.io";
+import { socketHandler } from "./sockets/socket.js";
+
 
 db();
 const app = express();
 
+
+
 app.use(
     cors({
-        origin: "<http://localhost:3000>",
+        origin: ["http://localhost:3000", "http://localhost:3001"],
         credentials: true,
         methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'Authorization']
     })
 );
+
+
+// create HTTP server
+const server = http.createServer(app);
+
+// create socket server
+const io = new Server(server, {
+    cors: {
+        origin: "*",   // for dev (later restrict)
+    },
+});
+
+socketHandler(io);
+
+
 app.set("trust proxy", true)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -28,6 +50,6 @@ app.use("/api/v1/auth", authRouter);
 
 
 
-app.listen(3000, () => {
+server.listen(3000, () => {
     console.log("Server is running on port 3000");
 });

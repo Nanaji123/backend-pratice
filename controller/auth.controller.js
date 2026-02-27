@@ -10,6 +10,8 @@ import Token from "../models/token.model.js";
 import { validateUsername, validatePassword } from "../utils/validation.js";
 import Password from "../models/password.model.js";
 import cloudinary from "../config/cloudinary.js";
+import { verificationEmailTemplate, passwordResetEmailTemplate } from "../utils/emailTemplates.js";
+
 
 
 
@@ -48,12 +50,14 @@ export const registerController = async (req, res) => {
             type: "VERIFICATION",
             expiresAt: Date.now() + 60 * 60 * 1000
         })
+        const verifyLink = `http://localhost:3001/verify/${newUser._id}/${token}`;
+
 
         await sendEmail({
             to: newUser.email,
             subject: "Verify your email",
-            text: `Click on the link to verify your email: http://localhost:3000/api/v1/auth/verify/${newUser._id}/${token}`
-        })
+            html: verificationEmailTemplate(newUser.username, verifyLink),
+        });
 
         res.status(201).json({ "success": true, message: "verification email sent" })
 
@@ -404,11 +408,17 @@ export const forgetPasswordController = async (req, res) => {
             expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 mins
         });
 
+        console.log("Reset token created", resetTokenRaw);
+
+        const resetLink = `http://localhost:3001/reset-password/${user._id}/${resetTokenRaw}`;
+
         await sendEmail({
             to: user.email,
             subject: "Reset your password",
-            text: `Use this link to reset your password: http://localhost:3000/api/v1/auth/reset-password/${user._id}/${resetTokenRaw}. Link expires in 15 minutes.`
+            html: passwordResetEmailTemplate(user.username, resetLink),
         });
+
+        console.log("Password reset email sent");
 
         res.status(200).json({ success: true, message: "Password reset email sent" });
     } catch (error) {
@@ -613,3 +623,67 @@ export const updateProfilePictureController = async (req, res) => {
     }
 }
 
+export const getSessionsController = async (req, res) => {
+    try {
+        const sessions = await Session.find({ userId: req.user._id }).sort({ lastUsedAt: -1 });
+        const currentRefreshToken = req.cookies.refreshToken;
+
+        const sessionList = await Promise.all(sessions.map(async (s) => {
+            const isCurrent = await s.compareToken(currentRefreshToken);
+            return {
+                id: s._id,
+                ip: s.ip,
+                userAgent: s.userAgent,
+                lastUsedAt: s.lastUsedAt,
+                isCurrentDevice: isCurrent
+            };
+        }));
+
+        res.status(200).json({ success: true, sessions: sessionList });
+    } catch (error) {
+        console.error("Error in fetching sessions", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+
+export const listUsersController = async (req, res) => {
+    try {
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 20;
+
+        const keyword = req.query.search
+            ? {
+                  $or: [
+                      { username: { $regex: req.query.search, $options: "i" } },
+                      { email: { $regex: req.query.search, $options: "i" } },
+                  ],
+              }
+            : {};
+
+        const query = {
+            ...keyword,
+            _id: { $ne: req.user._id }
+        };
+
+        const users = await User.find(query)
+            .select("username email profile_picture")
+            .limit(limit)
+            .skip((page - 1) * limit)
+            .sort({ createdAt: -1 });
+
+        const total = await User.countDocuments(query);
+
+        res.status(200).json({
+            success: true,
+            users,
+            total,
+            page,
+            pages: Math.ceil(total / limit)
+        });
+
+    } catch (error) {
+        console.error("Error in fetching users", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+};
