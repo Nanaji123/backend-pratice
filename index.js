@@ -31,7 +31,8 @@ const server = http.createServer(app);
 // create socket server
 const io = new Server(server, {
     cors: {
-        origin: "*",   // for dev (later restrict)
+        origin: ["http://localhost:3000", "http://localhost:3001"],   // for dev (later restrict)
+        credentials: true,
     },
 });
 

@@ -3,32 +3,37 @@ import Chat from "../models/chat.model.js";
 import jwt from "jsonwebtoken";
 import User from "../models/User.model.js";
 
-
 export const socketHandler = (io) => {
+
+    console.log("Socket server initialized");
 
     // 🔐 AUTH MIDDLEWARE
     io.use(async (socket, next) => {
         try {
-            const token = socket.handshake.auth.token;
+            console.log("Socket auth middleware");
+            const cookies = socket.handshake.headers.cookie;
+
+            const token = cookies
+                ?.split("; ")
+                .find(row => row.startsWith("accessToken="))
+                ?.split("=")[1];
+
+            console.log("token", token);
 
             if (!token) {
                 return next(new Error("No token provided"));
             }
 
-            // verify token
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-            // get user from DB
             const user = await User.findById(decoded.id).select("-password");
 
             if (!user) {
                 return next(new Error("User not found"));
             }
 
-            // attach user to socket
             socket.user = user;
-
-            next(); // allow connection
+            next();
 
         } catch (err) {
             console.log("Socket auth error:", err.message);
@@ -39,50 +44,72 @@ export const socketHandler = (io) => {
 
     io.on("connection", (socket) => {
         console.log("User connected:", socket.user._id);
+
+        // join personal room
         socket.join(socket.user._id.toString());
 
+        // join chat room
         socket.on("join_chat", (chatId) => {
             socket.join(chatId);
         });
 
 
-        // receive message from client
+        // 💬 SEND MESSAGE
         socket.on("send_message", async (data) => {
+            try {
+                const { chatId, content } = data;
 
-            const { chatId, content } = data;
+                // create message
+                const message = new Message({
+                    chat: chatId,
+                    sender: socket.user._id,
+                    content
+                });
 
-            // save message to DB
-            const message = new Message({
-                chat: chatId,
-                sender: socket.user._id,
-                content
-            });
+                const savedMessage = await message.save();
 
-            const savedMessage = await message.save();
+                // update latest message
+                await Chat.findByIdAndUpdate(chatId, {
+                    latestMessage: savedMessage._id
+                });
 
-            const chat = await Chat.findByIdAndUpdate(chatId, {
-                latestMessage: savedMessage._id
-            });
+                // populate sender
+                const fullMessage = await savedMessage.populate("sender");
 
+                // 🔥 send to chat room
+                io.to(chatId).emit("receive_message", fullMessage);
 
-            // populate sender info
-            const fullMessage = await savedMessage.populate("sender");
+                // 🔔 notify individual users (optional notification system)
+                const chat = await Chat.findById(chatId).populate("users");
 
+                chat.users.forEach(user => {
+                    if (user._id.toString() !== socket.user._id.toString()) {
+                        io.to(user._id.toString()).emit("message_notification", fullMessage);
+                    }
+                });
 
-            // send to all users in that chat room
-            io.to(chatId).emit("receive_message", fullMessage);
-
-
-
-
+            } catch (err) {
+                console.error("Socket send_message error:", err);
+            }
         });
 
+
+        // ✍️ TYPING
         socket.on("typing", (chatId) => {
-            socket.to(chatId).emit("typing");
+            socket.to(chatId).emit("typing", {
+                userId: socket.user._id,
+                username: socket.user.username
+            });
         });
-        // disconnect
+
+        socket.on("stop_typing", (chatId) => {
+            socket.to(chatId).emit("stop_typing", socket.user._id);
+        });
+
+
+        // ❌ DISCONNECT
         socket.on("disconnect", () => {
-            console.log("User disconnected:", socket.id);
+            console.log("User disconnected:", socket.user._id);
         });
     });
-}
+};

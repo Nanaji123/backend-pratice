@@ -12,6 +12,7 @@ import Password from "../models/password.model.js";
 import cloudinary from "../config/cloudinary.js";
 import { verificationEmailTemplate, passwordResetEmailTemplate } from "../utils/emailTemplates.js";
 import Chat from "../models/chat.model.js";
+import Message from "../models/message.model.js";
 
 
 
@@ -694,30 +695,76 @@ export const listUsersController = async (req, res) => {
 
 export const getChatsController = async (req, res) => {
     try {
-        const chats = await Chat.find({
-            users: { $elemMatch: { $eq: req.user._id } }
-        })
-            .populate("users", "-password")  // get all user info except password
-            .populate("groupAdmin", "-password")
-            .populate({
-                path: "latestMessage",
-                populate: {
-                    path: "sender",
-                    select: "username email profile_picture"
-                }
-            })
-            .sort({ updatedAt: -1 });
+        const loggedUserId = req.user._id;
 
+        // 1️⃣ Fetch chats where current user is participant
+        const chats = await Chat.find({
+            users: loggedUserId
+        })
+        .populate("users", "-password")
+        .populate("groupAdmin", "-password")
+        .populate({
+            path: "latestMessage",
+            populate: {
+                path: "sender",
+                select: "username email profile_picture"
+            }
+        })
+        .sort({ updatedAt: -1 });
+
+        // 2️⃣ Format chats (extract other user for private chats)
+        const formattedChats = chats.map(chat => {
+
+            // for one-to-one chat
+            if (!chat.isGroupChat) {
+                const otherUser = chat.users.find(
+                    u => u._id.toString() !== loggedUserId.toString()
+                );
+
+                return {
+                    _id: chat._id,
+                    chatName: otherUser?.username || chat.chatName,
+                    isGroupChat: false,
+                    otherUser: {
+                        _id: otherUser?._id,
+                        username: otherUser?.username,
+                        email: otherUser?.email,
+                        profile_picture: otherUser?.profile_picture
+                    },
+                    latestMessage: chat.latestMessage,
+                    createdAt: chat.createdAt,
+                    updatedAt: chat.updatedAt
+                };
+            }
+
+            // for group chat
+            return {
+                _id: chat._id,
+                chatName: chat.chatName,
+                isGroupChat: true,
+                users: chat.users,
+                groupAdmin: chat.groupAdmin,
+                latestMessage: chat.latestMessage,
+                createdAt: chat.createdAt,
+                updatedAt: chat.updatedAt
+            };
+        });
+
+        // 3️⃣ Send response
         res.status(200).json({
             success: true,
-            chats
+            count: formattedChats.length,
+            chats: formattedChats
         });
 
     } catch (error) {
         console.error("Error fetching chats:", error);
-        res.status(500).json({ message: "Internal server error" });
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
     }
-}
+};
 
 export const createChatController = async (req, res) => {
     try {

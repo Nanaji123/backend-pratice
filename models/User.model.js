@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import { hash, compare } from "../utils/hash.js";
 dotenv.config();
