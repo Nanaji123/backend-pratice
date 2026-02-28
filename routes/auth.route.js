@@ -24,7 +24,7 @@ router.post("/update-profile-picture", authMiddleware, upload.single("image"), u
 router.get("/sessions", authMiddleware, getSessionsController);
 
 
-router.get("/chat/list-users", authMiddleware, listUsersController);
+
 
 
 

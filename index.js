@@ -7,6 +7,7 @@ import http from "http";
 
 import { Server } from "socket.io";
 import { socketHandler } from "./sockets/socket.js";
+import chatRouter from "./routes/chat.route.js";
 
 
 db();
@@ -47,6 +48,7 @@ app.get("/", (req, res) => {
     res.send("Hello World!");
 })
 app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/chat", chatRouter);
 
 
 

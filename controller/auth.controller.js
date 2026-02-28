@@ -11,7 +11,7 @@ import { validateUsername, validatePassword } from "../utils/validation.js";
 import Password from "../models/password.model.js";
 import cloudinary from "../config/cloudinary.js";
 import { verificationEmailTemplate, passwordResetEmailTemplate } from "../utils/emailTemplates.js";
-
+import Chat from "../models/chat.model.js";
 
 
 
@@ -647,6 +647,10 @@ export const getSessionsController = async (req, res) => {
 }
 
 
+
+
+
+
 export const listUsersController = async (req, res) => {
     try {
         const page = Number(req.query.page) || 1;
@@ -654,11 +658,11 @@ export const listUsersController = async (req, res) => {
 
         const keyword = req.query.search
             ? {
-                  $or: [
-                      { username: { $regex: req.query.search, $options: "i" } },
-                      { email: { $regex: req.query.search, $options: "i" } },
-                  ],
-              }
+                $or: [
+                    { username: { $regex: req.query.search, $options: "i" } },
+                    { email: { $regex: req.query.search, $options: "i" } },
+                ],
+            }
             : {};
 
         const query = {
@@ -686,4 +690,164 @@ export const listUsersController = async (req, res) => {
         console.error("Error in fetching users", error);
         res.status(500).json({ message: "Internal server error" });
     }
-};
+}
+
+export const getChatsController = async (req, res) => {
+    try {
+        const chats = await Chat.find({
+            users: { $elemMatch: { $eq: req.user._id } }
+        })
+            .populate("users", "-password")  // get all user info except password
+            .populate("groupAdmin", "-password")
+            .populate({
+                path: "latestMessage",
+                populate: {
+                    path: "sender",
+                    select: "username email profile_picture"
+                }
+            })
+            .sort({ updatedAt: -1 });
+
+        res.status(200).json({
+            success: true,
+            chats
+        });
+
+    } catch (error) {
+        console.error("Error fetching chats:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const createChatController = async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ message: "userId is required" });
+        }
+
+        // check other user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // check if chat already exists between these 2 users
+        let chat = await Chat.findOne({
+            isGroupChat: false,
+            users: { $all: [req.user._id, userId] }
+        })
+            .populate("users", "-password")
+            .populate("latestMessage");
+
+        if (chat) {
+            return res.status(200).json({
+                success: true,
+                chat
+            });
+        }
+
+        // create new chat
+        chat = await Chat.create({
+            users: [req.user._id, userId],
+            chatName: user.username,
+            isGroupChat: false
+        });
+
+        const fullChat = await Chat.findById(chat._id)
+            .populate("users", "-password");
+
+        res.status(201).json({
+            success: true,
+            chat: fullChat
+        });
+
+    } catch (error) {
+        console.error("Error creating chat:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const updateChatController = async (req, res) => {
+    try {
+        const { chatId, chatName } = req.body;
+
+        const chat = await Chat.findById(chatId);
+
+        if (!chat) {
+            return res.status(404).json({ message: "Chat not found" });
+        }
+
+        // optional: allow only group admin to update
+        if (chat.isGroupChat && chat.groupAdmin.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        chat.chatName = chatName;
+        await chat.save();
+
+        res.status(200).json({
+            success: true,
+            chat
+        });
+
+    } catch (error) {
+        console.error("Error updating chat:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const deleteChatController = async (req, res) => {
+    try {
+        const { chatId } = req.body;
+
+        const chat = await Chat.findById(chatId);
+
+        if (!chat) {
+            return res.status(404).json({ message: "Chat not found" });
+        }
+
+        // allow only participants to delete
+        if (!chat.users.includes(req.user._id)) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        await chat.deleteOne();
+
+        res.status(200).json({
+            success: true,
+            message: "Chat deleted"
+        });
+
+    } catch (error) {
+        console.error("Error deleting chat:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const getMessagesController = async (req, res) => {
+    try {
+        const { chatId } = req.params;
+
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 30;
+
+        const messages = await Message.find({ chat: chatId })
+            .populate("sender", "username email profile_picture")
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip((page - 1) * limit);
+
+        res.status(200).json({
+            success: true,
+            messages
+        });
+
+    } catch (error) {
+        console.error("Error fetching messages:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+    ;
