@@ -1,16 +1,5 @@
 import User from "../models/User.model.js";
-import crypto from "crypto";
-import { sendEmail } from "../utils/email.js";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import { hash, compare } from "../utils/hash.js";
-import { getClientIp } from "../utils/ip.js";
-import Session from "../models/session.model.js";
-import Token from "../models/token.model.js";
-import { validateUsername, validatePassword } from "../utils/validation.js";
-import Password from "../models/password.model.js";
 import cloudinary from "../config/cloudinary.js";
-import { verificationEmailTemplate, passwordResetEmailTemplate } from "../utils/emailTemplates.js";
 import Chat from "../models/chat.model.js";
 import Message from "../models/message.model.js";
 
@@ -35,7 +24,7 @@ export const listUsersController = async (req, res) => {
         };
 
         const users = await User.find(query)
-            .select("username email profile_picture")
+            .select("username email profile_picture isOnline lastSeen")
             .limit(limit)
             .skip((page - 1) * limit)
             .sort({ createdAt: -1 });
@@ -92,7 +81,9 @@ export const getChatsController = async (req, res) => {
                         _id: otherUser?._id,
                         username: otherUser?.username,
                         email: otherUser?.email,
-                        profile_picture: otherUser?.profile_picture
+                        profile_picture: otherUser?.profile_picture,
+                        isOnline: otherUser?.isOnline,
+                        lastSeen: otherUser?.lastSeen
                     },
                     latestMessage: chat.latestMessage,
                     createdAt: chat.createdAt,
@@ -109,7 +100,9 @@ export const getChatsController = async (req, res) => {
                 groupAdmin: chat.groupAdmin,
                 latestMessage: chat.latestMessage,
                 createdAt: chat.createdAt,
-                updatedAt: chat.updatedAt
+                updatedAt: chat.updatedAt,
+                chat_profile_picture: chat.chat_profile_picture,
+                groupDescription: chat.groupDescription || ""
             };
         });
 
@@ -181,7 +174,7 @@ export const createChatController = async (req, res) => {
 
 export const updateChatController = async (req, res) => {
     try {
-        const { chatId, chatName } = req.body;
+        const { chatId, chatName, groupDescription } = req.body;
 
         const chat = await Chat.findById(chatId);
 
@@ -194,7 +187,8 @@ export const updateChatController = async (req, res) => {
             return res.status(403).json({ message: "Not authorized" });
         }
 
-        chat.chatName = chatName;
+        if (chatName) chat.chatName = chatName;
+        if (groupDescription !== undefined) chat.groupDescription = groupDescription;
         await chat.save();
 
         res.status(200).json({
@@ -249,9 +243,21 @@ export const getMessagesController = async (req, res) => {
             .limit(limit)
             .skip((page - 1) * limit);
 
+        // Mark each message with isMine so the frontend can render easily
+        const formattedMessages = messages.map(msg => ({
+            _id: msg._id,
+            content: msg.content,
+            chat: msg.chat,
+            sender: msg.sender,
+            readBy: msg.readBy,
+            createdAt: msg.createdAt,
+            updatedAt: msg.updatedAt,
+            isMine: msg.sender._id.toString() === req.user._id.toString()
+        }));
+
         res.status(200).json({
             success: true,
-            messages
+            messages: formattedMessages
         });
 
     } catch (error) {
@@ -259,3 +265,123 @@ export const getMessagesController = async (req, res) => {
         res.status(500).json({ message: "Internal server error" });
     }
 }
+
+export const createGroupChatController = async (req, res) => {
+    try {
+        // 1. Parse users if sent as string (common with FormData)
+        let { users, groupName, groupDescription } = req.body;
+        if (typeof users === 'string') users = JSON.parse(users);
+
+        if (!users || !groupName) {
+            return res.status(400).json({ message: "Users and group name are required" });
+        }
+
+        if (!Array.isArray(users) || users.length < 2) {
+            return res.status(400).json({ message: "Group chat requires at least 3 members" });
+        }
+
+        let chat_profile_picture = req.body.chat_profile_picture || "";
+
+        // 2. Handle Device Upload via Cloudinary Stream
+        if (req.file) {
+            const uploadToCloudinary = (fileBuffer) => {
+                return new Promise((resolve, reject) => {
+                    const uploadStream = cloudinary.uploader.upload_stream(
+                        { folder: "chat_profile_pictures" },
+                        (error, result) => {
+                            if (error) return reject(error);
+                            resolve(result);
+                        }
+                    );
+                    uploadStream.end(fileBuffer);
+                });
+            };
+
+            const result = await uploadToCloudinary(req.file.buffer);
+            chat_profile_picture = result.secure_url;
+        }
+
+        // 3. Normalize User list
+        const uniqueUsers = [...new Set(users.map(u => u.toString()))];
+        if (!uniqueUsers.includes(req.user._id.toString())) {
+            uniqueUsers.push(req.user._id.toString());
+        }
+
+        // 4. Create Chat
+        const chat = await Chat.create({
+            chatName: groupName,
+            users: uniqueUsers,
+            isGroupChat: true,
+            groupAdmin: req.user._id,
+            chat_profile_picture,
+            groupDescription: groupDescription || ""
+        });
+
+        const fullChat = await Chat.findById(chat._id)
+            .populate("users", "-password")
+            .populate("groupAdmin", "-password");
+
+        res.status(201).json({ success: true, chat: fullChat });
+
+    } catch (error) {
+        console.error("Error creating group chat:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+}
+
+export const getChatDetailsController = async (req, res) => {
+    try {
+        const { chatId } = req.params;
+
+        const chat = await Chat.findById(chatId)
+            .populate({
+                path: "users",
+                select: "username profile_picture isOnline lastSeen"
+            })
+            .populate({
+                path: "groupAdmin",
+                select: "username profile_picture"
+            });
+
+        if (!chat) {
+            return res.status(404).json({
+                message: "Chat not found"
+            });
+        }
+
+        let responseData = {
+            _id: chat._id,
+            isGroupChat: chat.isGroupChat,
+            chatName: chat.chatName,
+            chat_profile_picture: chat.chat_profile_picture,
+            createdAt: chat.createdAt,
+            groupDescription: chat.groupDescription || ""
+        };
+
+        // Group Chat Details
+        if (chat.isGroupChat) {
+            responseData.totalMembers = chat.users.length;
+            responseData.groupAdmin = chat.groupAdmin;
+            responseData.members = chat.users;
+        }
+        // Private Chat Details
+        else {
+            const otherUser = chat.users.find(
+                user => user._id.toString() !== req.user._id.toString()
+            );
+            responseData.user = otherUser;
+        }
+
+        res.status(200).json({
+            success: true,
+            chat: responseData
+        });
+
+    } catch (error) {
+        console.error("Error fetching chat details:", error);
+        res.status(500).json({
+            message: "Internal server error"
+        });
+    }
+};
+

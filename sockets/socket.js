@@ -75,9 +75,10 @@ export const socketHandler = (io) => {
 
                 // populate sender
                 const fullMessage = await savedMessage.populate("sender");
+                const actualMessageObject = fullMessage.toObject();
 
-                // 🔥 send to chat room
-                io.to(chatId).emit("receive_message", fullMessage);
+                socket.emit("receive_message", { ...actualMessageObject, isMine: true });
+                socket.to(chatId).emit("receive_message", { ...actualMessageObject, isMine: false })
 
                 // 🔔 notify individual users (optional notification system)
                 const chat = await Chat.findById(chatId).populate("users");

@@ -165,7 +165,7 @@ export const loginController = async (req, res) => {
         sameSite: "strict",
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
-    res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture } });
+    res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
 }
 
 export const logoutController = async (req, res) => {
@@ -384,7 +384,7 @@ export const verify2FAController = async (req, res) => {
             maxAge: 60 * 60 * 1000
         });
 
-        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture } });
+        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
     } catch (error) {
         console.error("Error in 2FA verification", error);
         return res.status(500).json({ message: "Internal server error" });
@@ -542,7 +542,7 @@ export const meController = async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
-        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture } });
+        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
     } catch (error) {
         console.error("Error in getting user", error);
         return res.status(500).json({ message: "Internal server error" });
@@ -672,7 +672,7 @@ export const listUsersController = async (req, res) => {
         };
 
         const users = await User.find(query)
-            .select("username email profile_picture")
+            .select("username email profile_picture isOnline lastSeen")
             .limit(limit)
             .skip((page - 1) * limit)
             .sort({ createdAt: -1 });
@@ -701,16 +701,16 @@ export const getChatsController = async (req, res) => {
         const chats = await Chat.find({
             users: loggedUserId
         })
-        .populate("users", "-password")
-        .populate("groupAdmin", "-password")
-        .populate({
-            path: "latestMessage",
-            populate: {
-                path: "sender",
-                select: "username email profile_picture"
-            }
-        })
-        .sort({ updatedAt: -1 });
+            .populate("users", "-password")
+            .populate("groupAdmin", "-password")
+            .populate({
+                path: "latestMessage",
+                populate: {
+                    path: "sender",
+                    select: "username email profile_picture"
+                }
+            })
+            .sort({ updatedAt: -1 });
 
         // 2️⃣ Format chats (extract other user for private chats)
         const formattedChats = chats.map(chat => {

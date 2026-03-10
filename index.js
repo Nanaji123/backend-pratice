@@ -8,6 +8,9 @@ import http from "http";
 import { Server } from "socket.io";
 import { socketHandler } from "./sockets/socket.js";
 import chatRouter from "./routes/chat.route.js";
+import aiRouter from "./routes/ai.router.js";
+import taskRouter from "./routes/test.router.js";
+
 
 
 db();
@@ -50,9 +53,11 @@ app.get("/", (req, res) => {
 })
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/chat", chatRouter);
+app.use("/api/v1/ai", aiRouter);
+app.use("/api/v1/task", taskRouter);
 
 
 
-server.listen(3000, () => {
+server.listen(3001, () => {
     console.log("Server is running on port 3000");
 });

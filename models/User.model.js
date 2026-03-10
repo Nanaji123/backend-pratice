@@ -31,7 +31,6 @@ const userSchema = new mongoose.Schema({
         default: `https://api.dicebear.com/7.x/avataaars/svg?seed=default`
     },
 
-
     loginAttempts: {
         type: Number,
         default: 0
@@ -47,6 +46,14 @@ const userSchema = new mongoose.Schema({
     is2FAEnabled: {
         type: Boolean,
         default: false
+    },
+    isOnline: {
+        type: Boolean,
+        default: false
+    },
+    lastSeen: {
+        type: Date,
+        default: Date.now
     }
 }, {
     timestamps: true

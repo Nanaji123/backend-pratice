@@ -9,6 +9,9 @@ const chatSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  chat_profile_picture: {
+    type: String,
+  },
   users: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -22,6 +25,10 @@ const chatSchema = new mongoose.Schema({
   groupAdmin: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User"
+  },
+  groupDescription: {
+    type: String,
+    default: ""
   }
 }, { timestamps: true });
 
