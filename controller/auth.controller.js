@@ -17,6 +17,7 @@ import Message from "../models/message.model.js";
 
 
 export const registerController = async (req, res) => {
+    console.log("Registration request received for email:", req.body?.email);
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
         return res.status(400).json({ message: "All fields are required" })
@@ -36,7 +37,13 @@ export const registerController = async (req, res) => {
         const newUser = await User.create({
             username,
             email,
-            password
+            password,
+            strength: Math.floor(Math.random() * 10) + 1,
+            stamina: Math.floor(Math.random() * 10) + 1,
+            agility: Math.floor(Math.random() * 10) + 1,
+            intelligence: Math.floor(Math.random() * 10) + 1,
+            sense: Math.floor(Math.random() * 10) + 1,
+            mana: Math.floor(Math.random() * 10) + 1
         })
         newUser.save();
         new Password({
@@ -51,7 +58,7 @@ export const registerController = async (req, res) => {
             type: "VERIFICATION",
             expiresAt: Date.now() + 60 * 60 * 1000
         })
-        const verifyLink = `http://localhost:3001/verify/${newUser._id}/${token}`;
+        const verifyLink = `http://localhost:3001/api/v1/auth/verify/${newUser._id}/${token}`;
 
 
         await sendEmail({
@@ -165,7 +172,34 @@ export const loginController = async (req, res) => {
         sameSite: "strict",
         maxAge: 7 * 24 * 60 * 60 * 1000
     })
-    res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
+    res.status(200).json({ 
+        success: true, 
+        accessToken, 
+        refreshToken, 
+        user: { 
+            username: user.username, 
+            email: user.email, 
+            profile_picture: user.profile_picture, 
+            isOnline: user.isOnline, 
+            lastSeen: user.lastSeen,
+            level: user.level,
+            exp: user.exp,
+            maxExp: user.maxExp,
+            coins: user.coins,
+            hp: user.hp,
+            maxHp: user.maxHp,
+            mp: user.mp,
+            maxMp: user.maxMp,
+            strength: user.strength,
+            stamina: user.stamina,
+            agility: user.agility,
+            intelligence: user.intelligence,
+            sense: user.sense,
+            mana: user.mana,
+            availableStatPoints: user.availableStatPoints,
+            dailyQuestCompleted: user.dailyQuestCompleted
+        } 
+    });
 }
 
 export const logoutController = async (req, res) => {
@@ -272,7 +306,7 @@ export const refreshController = async (req, res) => {
             sameSite: "strict",
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
-        res.status(200).json({ success: true, message: "Access token refreshed successfully" });
+        res.status(200).json({ success: true, accessToken, refreshToken: newRefreshToken, message: "Access token refreshed successfully" });
     } catch (error) {
         console.error("Error in refreshing token", error);
         return res.status(500).json({ message: "Internal server error" });
@@ -384,7 +418,29 @@ export const verify2FAController = async (req, res) => {
             maxAge: 60 * 60 * 1000
         });
 
-        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
+        res.status(200).json({ success: true, user: { 
+            username: user.username, 
+            email: user.email, 
+            profile_picture: user.profile_picture, 
+            isOnline: user.isOnline, 
+            lastSeen: user.lastSeen,
+            level: user.level,
+            exp: user.exp,
+            maxExp: user.maxExp,
+            coins: user.coins,
+            hp: user.hp,
+            maxHp: user.maxHp,
+            mp: user.mp,
+            maxMp: user.maxMp,
+            strength: user.strength,
+            stamina: user.stamina,
+            agility: user.agility,
+            intelligence: user.intelligence,
+            sense: user.sense,
+            mana: user.mana,
+            availableStatPoints: user.availableStatPoints,
+            dailyQuestCompleted: user.dailyQuestCompleted
+        } });
     } catch (error) {
         console.error("Error in 2FA verification", error);
         return res.status(500).json({ message: "Internal server error" });
@@ -411,7 +467,7 @@ export const forgetPasswordController = async (req, res) => {
 
         console.log("Reset token created", resetTokenRaw);
 
-        const resetLink = `http://localhost:3001/reset-password/${user._id}/${resetTokenRaw}`;
+        const resetLink = `http://localhost:3001/api/v1/auth/reset-password/${user._id}/${resetTokenRaw}`;
 
         await sendEmail({
             to: user.email,
@@ -542,7 +598,32 @@ export const meController = async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: "User not found" });
         }
-        res.status(200).json({ success: true, user: { username: user.username, email: user.email, profile_picture: user.profile_picture, isOnline: user.isOnline, lastSeen: user.lastSeen } });
+        res.status(200).json({ 
+            success: true, 
+            user: { 
+                username: user.username, 
+                email: user.email, 
+                profile_picture: user.profile_picture, 
+                isOnline: user.isOnline, 
+                lastSeen: user.lastSeen,
+                level: user.level,
+                exp: user.exp,
+                maxExp: user.maxExp,
+                coins: user.coins,
+                hp: user.hp,
+                maxHp: user.maxHp,
+                mp: user.mp,
+                maxMp: user.maxMp,
+                strength: user.strength,
+                stamina: user.stamina,
+                agility: user.agility,
+                intelligence: user.intelligence,
+                sense: user.sense,
+                mana: user.mana,
+                availableStatPoints: user.availableStatPoints,
+                dailyQuestCompleted: user.dailyQuestCompleted
+            } 
+        });
     } catch (error) {
         console.error("Error in getting user", error);
         return res.status(500).json({ message: "Internal server error" });

@@ -1,12 +1,13 @@
 import express from "express";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { memoryUpload } from "../middleware/upload.middleware.js";
-import { getChatsController, listUsersController, createChatController, updateChatController, deleteChatController, getMessagesController, createGroupChatController, getChatDetailsController } from "../controller/chat.controller.js";
+import { getChatsController, listUsersController, createChatController, updateChatController, deleteChatController, getMessagesController, createGroupChatController, getChatDetailsController, getGlobalChatController } from "../controller/chat.controller.js";
 const router = express.Router();
 
 
 router.get("/list-users", authMiddleware, listUsersController);
 router.get("/get-chats", authMiddleware, getChatsController);
+router.get("/global-chat", authMiddleware, getGlobalChatController);
 router.post("/create-chat", authMiddleware, createChatController);
 router.post("/create-group-chat", authMiddleware, memoryUpload.single("image"), createGroupChatController);
 router.post("/update-chat", authMiddleware, updateChatController);

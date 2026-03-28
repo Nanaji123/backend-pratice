@@ -8,8 +8,9 @@ import http from "http";
 import { Server } from "socket.io";
 import { socketHandler } from "./sockets/socket.js";
 import chatRouter from "./routes/chat.route.js";
-import aiRouter from "./routes/ai.router.js";
+import aiRouter from "./routes/ai.route.js";
 import taskRouter from "./routes/test.router.js";
+import questRouter from "./routes/Quest.route.js";
 
 
 
@@ -20,7 +21,7 @@ const app = express();
 
 app.use(
     cors({
-        origin: ["http://localhost:3000", "http://localhost:3001"],
+        origin: "*", // Allow all origins for easier debugging on physical devices
         credentials: true,
         methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
         allowHeaders: ['Content-Type', 'Authorization']
@@ -34,7 +35,7 @@ const server = http.createServer(app);
 // create socket server
 const io = new Server(server, {
     cors: {
-        origin: ["http://localhost:3000", "http://localhost:3001"],   // for dev (later restrict)
+        origin: "*",  
         credentials: true,
     },
 });
@@ -55,9 +56,11 @@ app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/ai", aiRouter);
 app.use("/api/v1/task", taskRouter);
+app.use("/api/v1/quests", questRouter);
 
 
 
-server.listen(3001, () => {
-    console.log("Server is running on port 3000");
+server.listen(3001, '0.0.0.0', () => {
+    console.log("Server is running on port 3001 and accessible on the local network");
+    console.log("READY FOR AUTH REQUESTS: http://0.0.0.0:3001/api/v1/auth/...");
 });

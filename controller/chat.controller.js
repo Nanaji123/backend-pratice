@@ -385,3 +385,39 @@ export const getChatDetailsController = async (req, res) => {
     }
 };
 
+export const getGlobalChatController = async (req, res) => {
+    try {
+        let globalChat = await Chat.findOne({ chatName: "Global Chat", isGroupChat: true });
+
+        if (!globalChat) {
+            // Create the first Global Chat
+            globalChat = await Chat.create({
+                chatName: "Global Chat",
+                isGroupChat: true,
+                users: [req.user._id],
+                groupDescription: "The official communication channel for all hunters."
+            });
+        } else {
+            // If user not in global chat, add them
+            if (!globalChat.users.includes(req.user._id)) {
+                globalChat.users.push(req.user._id);
+                await globalChat.save();
+            }
+        }
+
+        const fullChat = await Chat.findById(globalChat._id)
+            .populate("users", "username profile_picture isOnline")
+            .populate({
+                path: "latestMessage",
+                populate: {
+                    path: "sender",
+                    select: "username profile_picture"
+                }
+            });
+
+        res.status(200).json({ success: true, chat: fullChat });
+    } catch (error) {
+        console.error("Error fetching global chat:", error);
+        res.status(500).json({ message: "Global communication channel is offline." });
+    }
+};

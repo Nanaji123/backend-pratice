@@ -51,9 +51,72 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    lastSeen: {
-        type: Date,
-        default: Date.now
+
+    // --- System / Gaming Stats ---
+    level: {
+        type: Number,
+        default: 1
+    },
+    exp: {
+        type: Number,
+        default: 0
+    },
+    maxExp: {
+        type: Number,
+        default: 100
+    },
+    coins: {
+        type: Number,
+        default: 100 // Starting bonus
+    },
+    hp: {
+        type: Number,
+        default: 100
+    },
+    maxHp: {
+        type: Number,
+        default: 100
+    },
+    mp: {
+        type: Number,
+        default: 50
+    },
+    maxMp: {
+        type: Number,
+        default: 50
+    },
+    // Attributes (Solo Leveling inspired)
+    strength: {
+        type: Number,
+        default: 1
+    },
+    stamina: {
+        type: Number,
+        default: 1
+    },
+    agility: {
+        type: Number,
+        default: 1
+    },
+    intelligence: {
+        type: Number,
+        default: 1
+    },
+    sense: {
+        type: Number,
+        default: 1
+    },
+    mana: {
+        type: Number,
+        default: 1
+    },
+    availableStatPoints: {
+        type: Number,
+        default: 0
+    },
+    dailyQuestCompleted: {
+        type: Boolean,
+        default: false
     }
 }, {
     timestamps: true
